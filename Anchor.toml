@@ -1,5 +1,5 @@
 [programs.localnet]
-anchor_token_staking = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+anchor_token_staking = "4SgBV6KvC6TvRMPQqwcuNzfNDYcXKCo5TR5T3PFxBau5"
 
 [registry]
 url = "https://anchor.projectserum.com"
