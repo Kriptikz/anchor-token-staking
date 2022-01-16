@@ -32,6 +32,10 @@ describe('anchor-token-staking', () => {
   // Associated Token Accounts
   let user1TokenAAccount = null;
 
+  // StakeAccounts
+  let user1StakeAccountAddress = null;
+  let user1StakeAccountBump = null;
+
 
   // Program Token Vault PDA
   let pdaVaultTokenAAddress = null;
@@ -120,6 +124,32 @@ describe('anchor-token-staking', () => {
 
     let pdaTokenAAccountAmount = await (await mintA.getAccountInfo(pdaVaultTokenAAddress)).amount.toNumber();
     assert.equal(0, pdaTokenAAccountAmount);
+  });
+
+  it('Initialize a StakeAccount for our user1', async () => {
+    // Create our users StakeAccount PDA
+    [user1StakeAccountAddress, user1StakeAccountBump] = await anchor.web3.PublicKey.findProgramAddress([Buffer.from("stake-account"), mintA.publicKey.toBuffer(), user1.publicKey.toBuffer()], program.programId);
+
+    await provider.connection.confirmTransaction(
+      await program.rpc.initializeStakeAccount(
+        user1StakeAccountBump, {
+          accounts: {
+            stakeAccount: user1StakeAccountAddress,
+            stakeAuthority: user1.publicKey,
+            mint: mintA.publicKey,
+            systemProgram: anchor.web3.SystemProgram.programId,
+          },
+          signers: [user1]
+      })
+    );
+
+    let stakeAccount = await program.account.stakeAccount.fetch(user1StakeAccountAddress);
+    let authority = stakeAccount.authority;
+    let amount = stakeAccount.amount;
+
+    assert.equal(user1.publicKey.toString(), authority.toString());
+    assert.equal(0, amount);
+
   });
 
 });
