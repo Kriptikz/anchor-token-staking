@@ -152,4 +152,31 @@ describe('anchor-token-staking', () => {
 
   });
 
+  it('Stake Tokens with user1', async () => {
+    const AMOUNT_TO_DEPOSIT = 200;
+
+    await provider.connection.confirmTransaction(
+      await program.rpc.stakeTokens(
+        new anchor.BN(AMOUNT_TO_DEPOSIT), {
+          accounts: {
+            vaultAccount: pdaVaultTokenAAddress,
+            stakeAccount: user1StakeAccountAddress,
+            staker: user1.publicKey,
+            stakerTokenAccount: user1TokenAAccount,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          },
+          signers: [user1]
+      })
+    );
+
+    let pdaTokenAAccountAmount = await (await mintA.getAccountInfo(pdaVaultTokenAAddress)).amount.toNumber();
+    assert.equal(AMOUNT_TO_DEPOSIT, pdaTokenAAccountAmount);
+
+    let accessAccount = await program.account.stakeAccount.fetch(user1StakeAccountAddress);
+    let amount = accessAccount.amount;
+
+    assert.equal(AMOUNT_TO_DEPOSIT, amount);
+
+  });
+
 });

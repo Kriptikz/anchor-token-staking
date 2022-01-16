@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Token, TokenAccount, Mint};
+use anchor_spl::token::{self, Token, TokenAccount, Mint, Transfer};
 
 declare_id!("4SgBV6KvC6TvRMPQqwcuNzfNDYcXKCo5TR5T3PFxBau5");
 
@@ -24,7 +24,26 @@ pub mod anchor_token_staking {
         Ok(())
     }
 
-    pub fn stake_tokens(_ctx: Context<StakeTokens>) -> ProgramResult {
+    pub fn stake_tokens(ctx: Context<StakeTokens>, amount: u64) -> ProgramResult {
+        // verify the vault is our vault PDA of the tokens mint
+        let mint = ctx.accounts.staker_token_account.mint;
+        let (pda, _) = Pubkey::find_program_address(&[b"vault", mint.as_ref()], &id());
+
+        if pda != ctx.accounts.vault_account.key() {
+            return Err(ErrorCode::InvalidVaultPda.into())
+        }
+
+        // Verify the vault access address is the correct PDA
+        let (pda, _) = Pubkey::find_program_address(&[b"stake-account", mint.as_ref(), ctx.accounts.staker.key().as_ref()], &id());
+
+        if pda != ctx.accounts.stake_account.key() {
+            return Err(ErrorCode::InvalidStakeAccountPda.into())
+        }
+
+        token::transfer((&*ctx.accounts).into(), amount)?;
+
+        ctx.accounts.stake_account.amount += amount;
+
         Ok(())
     }
 }
@@ -74,6 +93,19 @@ pub struct StakeTokens<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+impl<'info> From<&StakeTokens<'info>> for CpiContext<'_, '_, '_, 'info, Transfer<'info>> {
+    fn from(accounts: &StakeTokens<'info>) -> Self {
+        let cpi_program = accounts.token_program.to_account_info();
+        let cpi_accounts = Transfer {
+            from: accounts.staker_token_account.to_account_info(),
+            to: accounts.vault_account.to_account_info(),
+            authority: accounts.staker.to_account_info(),
+        };
+
+        CpiContext::new(cpi_program, cpi_accounts)
+    }
+}
+
 #[account]
 pub struct StakeAccount {
     authority: Pubkey,  // 32
@@ -82,6 +114,8 @@ pub struct StakeAccount {
 
 #[error]
 pub enum ErrorCode {
+    #[msg("Error: Invalid vault PDA")]
+    InvalidVaultPda,
     #[msg("Error: Invalid StakeAccount PDA")]
     InvalidStakeAccountPda,
 }
