@@ -19,6 +19,9 @@ describe('anchor-token-staking', () => {
   // User Keypairs
   const user1 = anchor.web3.Keypair.generate();
 
+  // Payer Keypair
+  const payer = anchor.web3.Keypair.generate();
+
 
   // Mint Authority Keypairs
   const mintAAuthority = anchor.web3.Keypair.generate();
@@ -36,12 +39,19 @@ describe('anchor-token-staking', () => {
 
 
 
-  it('Test set up', async () => {
+  it('Test Set Up', async () => {
     // Airdrop sol to user1
     await provider.connection.confirmTransaction(
       await provider.connection.requestAirdrop(user1.publicKey, LAMPORTS_PER_SOL),
       "confirmed"
     );
+
+    // Airdrop sol to user1
+    await provider.connection.confirmTransaction(
+      await provider.connection.requestAirdrop(payer.publicKey, 2 * LAMPORTS_PER_SOL),
+      "confirmed"
+    );
+
     // Airdrop sol to mintAAuthority
     await provider.connection.confirmTransaction(
       await provider.connection.requestAirdrop(mintAAuthority.publicKey, LAMPORTS_PER_SOL),
@@ -51,7 +61,7 @@ describe('anchor-token-staking', () => {
     // Create our token A mint
     mintA = await Token.createMint(
       provider.connection,
-      user1,
+      payer,
       mintAAuthority.publicKey,
       null,
       0,
@@ -88,4 +98,28 @@ describe('anchor-token-staking', () => {
     assert.equal(MINT_A_AMOUNT, amount);
     assert.equal(mintAAuthority.publicKey, mintAMintInfoAuthority);
   });
+
+  it('Initialize Token A Program Vault', async () => {
+    await provider.connection.confirmTransaction(
+      await program.rpc.initializeVault(
+        pdaVaultTokenABump, {
+          accounts: {
+            vaultAccount: pdaVaultTokenAAddress,
+            payer: payer.publicKey,
+            mint: mintA.publicKey,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+          },
+          signers: [payer]
+      })
+    );
+
+    let pdaVaultTokenAAccountOwner = (await provider.connection.getAccountInfo(pdaVaultTokenAAddress)).owner;
+    assert.equal(TOKEN_PROGRAM_ID.toString(), pdaVaultTokenAAccountOwner.toString(), );
+
+    let pdaTokenAAccountAmount = await (await mintA.getAccountInfo(pdaVaultTokenAAddress)).amount.toNumber();
+    assert.equal(0, pdaTokenAAccountAmount);
+  });
+
 });
