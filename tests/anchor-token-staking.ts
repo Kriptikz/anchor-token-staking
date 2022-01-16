@@ -2,7 +2,7 @@ import * as anchor from '@project-serum/anchor';
 import { Program } from '@project-serum/anchor';
 import { AnchorTokenStaking } from '../target/types/anchor_token_staking';
 import { LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, Token, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { TOKEN_PROGRAM_ID, Token } from '@solana/spl-token';
 import { assert } from 'chai';
 
 describe('anchor-token-staking', () => {
@@ -27,8 +27,12 @@ describe('anchor-token-staking', () => {
   let mintA = null;
   
   // Associated Token Accounts
-  let user1TokenAccountA = null;
-  let pdaVaultTokenAccountA = null;
+  let user1TokenAAccount = null;
+
+
+  // Program Token Vault PDA
+  let pdaVaultTokenAAddress = null;
+  let pdaVaultTokenABump = null;
 
 
 
@@ -55,26 +59,33 @@ describe('anchor-token-staking', () => {
     );
 
     // Create our user1 token A account
-    user1TokenAccountA = await mintA.createAccount(user1.publicKey);
+    user1TokenAAccount = await mintA.createAccount(user1.publicKey);
 
     // Mint some token A to user1TokenAccountA
     await mintA.mintTo(
-      user1TokenAccountA,
+      user1TokenAAccount,
       mintAAuthority.publicKey,
       [mintAAuthority],
       MINT_A_AMOUNT,
     );
 
-    const [pdaVaultAddress, pdaVaultBump] = await anchor.web3.PublicKey.findProgramAddress(
-      [Buffer.from("vault")],
+    // Find our vault PDA
+    [pdaVaultTokenAAddress, pdaVaultTokenABump] = await anchor.web3.PublicKey.findProgramAddress(
+      [Buffer.from("vault"), mintA.publicKey.toBuffer()],
       program.programId
     )
 
-    console.log(`Bump: ${pdaVaultBump}, PDA Vault Address: ${pdaVaultAddress.toBase58()}`);
+    console.log(`PDA Token A Vault Address: ${pdaVaultTokenAAddress}, Bump: ${pdaVaultTokenABump}`);
+    console.log("User1 Pubkey: ", user1.publicKey.toString());
+    console.log("User1 Token A Account: ", user1TokenAAccount.toString());
+    console.log("MintA Authority Pubkey: ", mintAAuthority.publicKey.toString());
+    console.log("MintA Pubkey: ", mintA.publicKey.toString());
 
-    let amount = (await mintA.getAccountInfo(user1TokenAccountA)).amount.toNumber();
-    console.log("User1 Token A Amount: ", amount);
+    let amount = (await mintA.getAccountInfo(user1TokenAAccount)).amount.toNumber();
+    let mintAMintInfoAuthority = (await mintA.getMintInfo()).mintAuthority.toString();
+    console.log("MintA Authority: ", mintAMintInfoAuthority);
 
     assert.equal(MINT_A_AMOUNT, amount);
+    assert.equal(mintAAuthority.publicKey, mintAMintInfoAuthority);
   });
 });
