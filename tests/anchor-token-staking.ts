@@ -85,7 +85,7 @@ describe('anchor-token-staking', () => {
 
     // Find our vault PDA
     [pdaVaultTokenAAddress, pdaVaultTokenABump] = await anchor.web3.PublicKey.findProgramAddress(
-      [Buffer.from("vault"), mintA.publicKey.toBuffer()],
+      [Buffer.from("stake-vault"), mintA.publicKey.toBuffer()],
       program.programId
     )
 
@@ -103,9 +103,9 @@ describe('anchor-token-staking', () => {
     assert.equal(mintAAuthority.publicKey, mintAMintInfoAuthority);
   });
 
-  it('Initialize Token A Program Vault', async () => {
+  it('Initialize Token A Program Staking Vault', async () => {
     await provider.connection.confirmTransaction(
-      await program.rpc.initializeVault(
+      await program.rpc.initializeStakeVault(
         pdaVaultTokenABump, {
           accounts: {
             vaultAccount: pdaVaultTokenAAddress,

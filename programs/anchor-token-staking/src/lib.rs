@@ -7,7 +7,7 @@ declare_id!("4SgBV6KvC6TvRMPQqwcuNzfNDYcXKCo5TR5T3PFxBau5");
 pub mod anchor_token_staking {
     use super::*;
 
-    pub fn initialize_vault(_ctx: Context<InitializeVault>, _bump: u8) -> ProgramResult {
+    pub fn initialize_stake_vault(_ctx: Context<InitializeStakeVault>, _bump: u8) -> ProgramResult {
         Ok(())
     }
 
@@ -27,7 +27,7 @@ pub mod anchor_token_staking {
     pub fn stake_tokens(ctx: Context<StakeTokens>, amount: u64) -> ProgramResult {
         // verify the vault is our vault PDA of the tokens mint
         let mint = ctx.accounts.staker_token_account.mint;
-        let (pda, _) = Pubkey::find_program_address(&[b"vault", mint.as_ref()], &id());
+        let (pda, _) = Pubkey::find_program_address(&[b"stake-vault", mint.as_ref()], &id());
 
         if pda != ctx.accounts.vault_account.key() {
             return Err(ErrorCode::InvalidVaultPda.into())
@@ -50,10 +50,10 @@ pub mod anchor_token_staking {
 
 #[derive(Accounts)]
 #[instruction(bump: u8)]
-pub struct InitializeVault<'info> {
+pub struct InitializeStakeVault<'info> {
     #[account(init_if_needed,
         payer = payer,
-        seeds = [b"vault", mint.key().as_ref()],
+        seeds = [b"stake-vault", mint.key().as_ref()],
         bump = bump,
         token::mint = mint,
         token::authority = vault_account)]
