@@ -46,6 +46,46 @@ pub mod anchor_token_staking {
 
         Ok(())
     }
+
+    pub fn unstake_tokens(ctx: Context<UnstakeTokens>, amount: u64) -> ProgramResult {
+        // verify the vault is our vault PDA of the tokens mint
+        let mint = ctx.accounts.to.mint;
+        let (pda, bump) = Pubkey::find_program_address(&[b"stake-vault", mint.as_ref()], &id());
+
+        if pda != ctx.accounts.vault_account.key() {
+            return Err(ErrorCode::InvalidVaultPda.into())
+        }
+
+        // Verify the vault access address is the correct PDA
+        let (pda, _) = Pubkey::find_program_address(&[b"stake-account", mint.as_ref(), ctx.accounts.authority.key().as_ref()], &id());
+
+        if pda != ctx.accounts.stake_account.key() {
+            return Err(ErrorCode::InvalidStakeAccountPda.into())
+        }
+
+
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.vault_account.to_account_info(),
+            to: ctx.accounts.to.to_account_info(),
+            authority: ctx.accounts.vault_account.to_account_info(),
+        };
+
+        if amount > ctx.accounts.stake_account.amount {
+            return Err(ErrorCode::InsufficientFundsStaked.into())
+        }
+
+        ctx.accounts.stake_account.amount -= amount;
+
+        token::transfer(
+            CpiContext::new_with_signer(
+                cpi_program, 
+                cpi_accounts,
+                &[&[b"stake-vault", mint.as_ref(), &[bump]]]), 
+            amount)?;
+
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -106,6 +146,18 @@ impl<'info> From<&StakeTokens<'info>> for CpiContext<'_, '_, '_, 'info, Transfer
     }
 }
 
+#[derive(Accounts)]
+pub struct UnstakeTokens<'info> {
+    #[account(mut)]
+    pub vault_account: Account<'info, TokenAccount>,
+    #[account(mut, constraint = stake_account.authority == authority.key())]
+    pub stake_account: Account<'info, StakeAccount>,
+    #[account(mut, constraint = to.owner == authority.key())]
+    pub to: Account<'info, TokenAccount>,
+    pub authority: Signer<'info>,
+    pub token_program: Program<'info, Token>,
+}
+
 #[account]
 pub struct StakeAccount {
     authority: Pubkey,  // 32
@@ -118,4 +170,6 @@ pub enum ErrorCode {
     InvalidVaultPda,
     #[msg("Error: Invalid StakeAccount PDA")]
     InvalidStakeAccountPda,
+    #[msg("Error: Insufficient funds staked")]
+    InsufficientFundsStaked,
 }

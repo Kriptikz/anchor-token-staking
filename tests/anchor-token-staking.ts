@@ -128,7 +128,8 @@ describe('anchor-token-staking', () => {
 
   it('Initialize a StakeAccount for our user1', async () => {
     // Create our users StakeAccount PDA
-    [user1StakeAccountAddress, user1StakeAccountBump] = await anchor.web3.PublicKey.findProgramAddress([Buffer.from("stake-account"), mintA.publicKey.toBuffer(), user1.publicKey.toBuffer()], program.programId);
+    [user1StakeAccountAddress, user1StakeAccountBump] = await anchor.web3.PublicKey.findProgramAddress(
+      [Buffer.from("stake-account"), mintA.publicKey.toBuffer(), user1.publicKey.toBuffer()], program.programId);
 
     await provider.connection.confirmTransaction(
       await program.rpc.initializeStakeAccount(
@@ -176,6 +177,32 @@ describe('anchor-token-staking', () => {
     let amount = accessAccount.amount;
 
     assert.equal(AMOUNT_TO_DEPOSIT, amount);
+
+  });
+
+  it('Unstake tokens from our program', async () => {
+    const AMOUNT_TO_WITHDRAW = 200;
+
+    // Create our users StakeAccount PDA
+    [user1StakeAccountAddress, user1StakeAccountBump] = await anchor.web3.PublicKey.findProgramAddress(
+      [Buffer.from("stake-account"), mintA.publicKey.toBuffer(), user1.publicKey.toBuffer()], program.programId);
+
+    await provider.connection.confirmTransaction(
+      await program.rpc.unstakeTokens(
+        new anchor.BN(AMOUNT_TO_WITHDRAW), {
+          accounts: {
+            vaultAccount: pdaVaultTokenAAddress,
+            stakeAccount: user1StakeAccountAddress,
+            to: user1TokenAAccount,
+            authority: user1.publicKey,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          },
+          signers: [user1]
+      })
+    );
+
+    let pdaTokenAAccountAmount = await (await mintA.getAccountInfo(pdaVaultTokenAAddress)).amount.toNumber();
+    assert.equal(0, pdaTokenAAccountAmount);
 
   });
 
