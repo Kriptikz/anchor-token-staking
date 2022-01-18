@@ -24,6 +24,7 @@ pub mod anchor_token_staking {
             return Err(ErrorCode::InvalidStakeAccountPda.into())
         }
 
+        // Set our defaults for the StakeAccount
         ctx.accounts.stake_account.authority = ctx.accounts.stake_authority.key();
         ctx.accounts.stake_account.staked_amount = 0;
         ctx.accounts.stake_account.stake_start_time = 0;
@@ -54,10 +55,15 @@ pub mod anchor_token_staking {
         let clock = anchor_lang::solana_program::clock::Clock::get()?;
         let time = clock.unix_timestamp;
 
-        ctx.accounts.stake_account.update_unclaimed_amount(time);
+        // Update our unclaimed_amount -- needed here if the user is staking more tokens on top of their stake 
+        let pending_rewards = ctx.accounts.stake_account.calculate_pending_rewards(time);
+        ctx.accounts.stake_account.unclaimed_amount += pending_rewards;
 
+        // After updating our unclaimed_amount with possible pending rewards, we set our time to the current time
         ctx.accounts.stake_account.stake_start_time = time;
 
+        // After the stake_account rewards have been calculated, we can then update the amount staked.
+        // If we update the amount before updating our unclaimed_amount it will mess up the rewards calculation.
         ctx.accounts.stake_account.staked_amount += amount;
 
         Ok(())
@@ -101,10 +107,15 @@ pub mod anchor_token_staking {
         let clock = anchor_lang::solana_program::clock::Clock::get()?;
         let time = clock.unix_timestamp;
 
-        ctx.accounts.stake_account.update_unclaimed_amount(time);
+        // Update our unclaimed_amount -- needed here because we will be changing the staked_amount and stake_start_time so we need to calculate rewards first.
+        let pending_rewards = ctx.accounts.stake_account.calculate_pending_rewards(time);
+        ctx.accounts.stake_account.unclaimed_amount += pending_rewards;
 
+        // After updating the unclaimed_amount rewards we can then change our staked_amount.
         ctx.accounts.stake_account.staked_amount -= amount;
 
+        // If the staked_amount is > 0, we still have some stake left, so we can updated the time to now.
+        // If the staked_amount is 0, we removed all stake, so we can set the time to 0. calculate_pending_rewards returns 0 if the stake_start_time is 0. 
         if ctx.accounts.stake_account.staked_amount > 0 {
             ctx.accounts.stake_account.stake_start_time = time;
         } else {
@@ -134,25 +145,23 @@ pub mod anchor_token_staking {
         let clock = anchor_lang::solana_program::clock::Clock::get()?;
         let time = clock.unix_timestamp;
 
-        ctx.accounts.stake_account.update_unclaimed_amount(time);
+        // Update our unclaimed_amount -- Needed here because we only claim from the unclaimed_amount and need to update it before we can claim anything.
+        let pending_rewards = ctx.accounts.stake_account.calculate_pending_rewards(time);
+        ctx.accounts.stake_account.unclaimed_amount += pending_rewards;
 
-        if ctx.accounts.stake_account.staked_amount > 0 {
-            ctx.accounts.stake_account.stake_start_time = time;
-        } else {
-            ctx.accounts.stake_account.stake_start_time = 0;
-        }
-
+        // Using our unclaimed_amount we set the amount we will transfer from the rewards vault,
+        // then set our unclaimed_amount to 0 - since we will be claiming it with the transfer.
         let amount = ctx.accounts.stake_account.unclaimed_amount;
         ctx.accounts.stake_account.unclaimed_amount = 0;
 
 
+        // Transfer the amount that was unclaimed to our users token account.
         let cpi_program = ctx.accounts.token_program.to_account_info();
         let cpi_accounts = Transfer {
             from: ctx.accounts.reward_vault.to_account_info(),
             to: ctx.accounts.to.to_account_info(),
             authority: ctx.accounts.reward_vault.to_account_info(),
         };
-
 
         token::transfer(
             CpiContext::new_with_signer(
@@ -274,15 +283,17 @@ pub struct StakeAccount {
 }
 
 impl StakeAccount {
-    fn update_unclaimed_amount(&mut self, current_time: i64) {
+    fn calculate_pending_rewards(&mut self, current_time: i64) -> u64 {
         // Calculate pending reward amount
         let mut pending_rewards = ((current_time - self.stake_start_time) as u64) * (REWARDS_RATE_PER_SECOND_PER_STAKE * self.staked_amount);
+
+        // If the stake_start_time is zero. Then we have no staked amount so we need to set pending rewards to 0
+        // OR we end up with pending rewards going all the way back to Jan 1, 1970 - The start of the unix timestamp.
         if self.stake_start_time == 0 {
             pending_rewards = 0;
         }
 
-        // Increase unclaimed_amount by pending reward amount
-        self.unclaimed_amount += pending_rewards;
+        pending_rewards
     }
 }
 
