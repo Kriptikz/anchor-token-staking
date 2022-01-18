@@ -284,14 +284,14 @@ pub struct StakeAccount {
 
 impl StakeAccount {
     fn calculate_pending_rewards(&mut self, current_time: i64) -> u64 {
-        // Calculate pending reward amount
-        let mut pending_rewards = ((current_time - self.stake_start_time) as u64) * (REWARDS_RATE_PER_SECOND_PER_STAKE * self.staked_amount);
-
         // If the stake_start_time is zero. Then we have no staked amount so we need to set pending rewards to 0
         // OR we end up with pending rewards going all the way back to Jan 1, 1970 - The start of the unix timestamp.
         if self.stake_start_time == 0 {
-            pending_rewards = 0;
+            return 0
         }
+
+        // Calculate pending reward amount
+        let pending_rewards = ((current_time - self.stake_start_time) as u64) * (REWARDS_RATE_PER_SECOND_PER_STAKE * self.staked_amount);
 
         pending_rewards
     }
