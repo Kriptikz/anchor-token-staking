@@ -103,14 +103,63 @@ pub mod anchor_token_staking {
 
         ctx.accounts.stake_account.update_unclaimed_amount(time);
 
+        ctx.accounts.stake_account.staked_amount -= amount;
+
+        if ctx.accounts.stake_account.staked_amount > 0 {
+            ctx.accounts.stake_account.stake_start_time = time;
+        } else {
+            ctx.accounts.stake_account.stake_start_time = 0;
+        }
+        
+
+        Ok(())
+    }
+
+    pub fn claim_rewards(ctx: Context<ClaimRewards>) -> ProgramResult {
+        // verify the vault is our reward vault PDA of the tokens mint
+        let mint = ctx.accounts.to.mint;
+        let (pda, bump) = Pubkey::find_program_address(&[b"reward-vault", mint.as_ref()], &id());
+
+        if pda != ctx.accounts.reward_vault.key() {
+            return Err(ErrorCode::InvalidVaultPda.into())
+        }
+
+        // Verify the vault access address is the correct PDA
+        let (pda, _) = Pubkey::find_program_address(&[b"stake-account", mint.as_ref(), ctx.accounts.authority.key().as_ref()], &id());
+
+        if pda != ctx.accounts.stake_account.key() {
+            return Err(ErrorCode::InvalidStakeAccountPda.into())
+        }
+
+        let clock = anchor_lang::solana_program::clock::Clock::get()?;
+        let time = clock.unix_timestamp;
+
+        ctx.accounts.stake_account.update_unclaimed_amount(time);
+
         if ctx.accounts.stake_account.staked_amount > 0 {
             ctx.accounts.stake_account.stake_start_time = time;
         } else {
             ctx.accounts.stake_account.stake_start_time = 0;
         }
 
-        ctx.accounts.stake_account.staked_amount -= amount;
-        
+        let amount = ctx.accounts.stake_account.unclaimed_amount;
+        ctx.accounts.stake_account.unclaimed_amount = 0;
+
+
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.reward_vault.to_account_info(),
+            to: ctx.accounts.to.to_account_info(),
+            authority: ctx.accounts.reward_vault.to_account_info(),
+        };
+
+
+        token::transfer(
+            CpiContext::new_with_signer(
+                cpi_program, 
+                cpi_accounts,
+                &[&[b"reward-vault", mint.as_ref(), &[bump]]]), 
+            amount)?;
 
         Ok(())
     }
@@ -204,6 +253,18 @@ pub struct UnstakeTokens<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+#[derive(Accounts)]
+pub struct ClaimRewards<'info> {
+    #[account(mut)]
+    pub reward_vault: Account<'info, TokenAccount>,
+    #[account(mut, constraint = stake_account.authority == authority.key())]
+    pub stake_account: Account<'info, StakeAccount>,
+    #[account(mut, constraint = to.owner == authority.key())]
+    pub to: Account<'info, TokenAccount>,
+    pub authority: Signer<'info>,
+    pub token_program: Program<'info, Token>,
+}
+
 #[account]
 pub struct StakeAccount {
     authority: Pubkey,      // 32
@@ -221,7 +282,7 @@ impl StakeAccount {
         }
 
         // Increase unclaimed_amount by pending reward amount
-        self.unclaimed_amount = pending_rewards;
+        self.unclaimed_amount += pending_rewards;
     }
 }
 
