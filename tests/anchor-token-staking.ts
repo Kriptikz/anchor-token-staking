@@ -13,8 +13,15 @@ describe('anchor-token-staking', () => {
 
   const program = anchor.workspace.AnchorTokenStaking as Program<AnchorTokenStaking>;
 
+  // Simple Delay
+  const delay = ms => new Promise(res => setTimeout(res, ms));
+
   // Initial Mint amount
   const MINT_A_AMOUNT = 1_000;
+  const MINT_A_REWARD_VAULT_AMOUNT = 10_000;
+
+  // Amount to Stake/Unstake
+  const AMOUNT_TO_STAKE = 200;
 
   // User Keypairs
   const user1 = anchor.web3.Keypair.generate();
@@ -37,9 +44,15 @@ describe('anchor-token-staking', () => {
   let user1StakeAccountBump = null;
 
 
-  // Program Token Vault PDA
-  let pdaVaultTokenAAddress = null;
-  let pdaVaultTokenABump = null;
+  // Program Token Stake Vault PDA
+  let pdaStakeVaultTokenAAddress = null;
+  let pdaStakeVaultTokenABump = null;
+
+  // Program Token Reward Vault PDA
+  let pdaRewardVaultTokenAAddress = null;
+  let pdaRewardVaultTokenABump = null;
+
+
 
 
 
@@ -83,13 +96,19 @@ describe('anchor-token-staking', () => {
       MINT_A_AMOUNT,
     );
 
-    // Find our vault PDA
-    [pdaVaultTokenAAddress, pdaVaultTokenABump] = await anchor.web3.PublicKey.findProgramAddress(
+    // Find our stake vault PDA
+    [pdaStakeVaultTokenAAddress, pdaStakeVaultTokenABump] = await anchor.web3.PublicKey.findProgramAddress(
       [Buffer.from("stake-vault"), mintA.publicKey.toBuffer()],
       program.programId
-    )
+    );
 
-    console.log(`PDA Token A Vault Address: ${pdaVaultTokenAAddress}, Bump: ${pdaVaultTokenABump}`);
+    // Find our reward vault PDA
+    [pdaRewardVaultTokenAAddress, pdaRewardVaultTokenABump] = await anchor.web3.PublicKey.findProgramAddress(
+      [Buffer.from("reward-vault"), mintA.publicKey.toBuffer()],
+      program.programId
+    );
+
+    console.log(`PDA Token A Vault Address: ${pdaStakeVaultTokenAAddress}, Bump: ${pdaStakeVaultTokenABump}`);
     console.log("User1 Pubkey: ", user1.publicKey.toString());
     console.log("User1 Token A Account: ", user1TokenAAccount.toString());
     console.log("MintA Authority Pubkey: ", mintAAuthority.publicKey.toString());
@@ -106,9 +125,9 @@ describe('anchor-token-staking', () => {
   it('Initialize Token A Program Staking Vault', async () => {
     await provider.connection.confirmTransaction(
       await program.rpc.initializeStakeVault(
-        pdaVaultTokenABump, {
+        pdaStakeVaultTokenABump, {
           accounts: {
-            vaultAccount: pdaVaultTokenAAddress,
+            stakeVault: pdaStakeVaultTokenAAddress,
             payer: payer.publicKey,
             mint: mintA.publicKey,
             systemProgram: anchor.web3.SystemProgram.programId,
@@ -119,11 +138,42 @@ describe('anchor-token-staking', () => {
       })
     );
 
-    let pdaVaultTokenAAccountOwner = (await provider.connection.getAccountInfo(pdaVaultTokenAAddress)).owner;
-    assert.equal(TOKEN_PROGRAM_ID.toString(), pdaVaultTokenAAccountOwner.toString(), );
+    let pdaStakeVaultTokenAAccountOwner = (await provider.connection.getAccountInfo(pdaStakeVaultTokenAAddress)).owner;
+    assert.equal(TOKEN_PROGRAM_ID.toString(), pdaStakeVaultTokenAAccountOwner.toString(), );
 
-    let pdaTokenAAccountAmount = await (await mintA.getAccountInfo(pdaVaultTokenAAddress)).amount.toNumber();
-    assert.equal(0, pdaTokenAAccountAmount);
+    let pdaStakeVaultTokenAAccountAmount = await (await mintA.getAccountInfo(pdaStakeVaultTokenAAddress)).amount.toNumber();
+    assert.equal(0, pdaStakeVaultTokenAAccountAmount);
+  });
+
+  it('Initialize Token A Program Reward Vault', async () => {
+    await provider.connection.confirmTransaction(
+      await program.rpc.initializeRewardVault(
+        pdaRewardVaultTokenABump, {
+          accounts: {
+            rewardVault: pdaRewardVaultTokenAAddress,
+            payer: payer.publicKey,
+            mint: mintA.publicKey,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+          },
+          signers: [payer]
+      })
+    );
+
+    // Mint 10_000 Token A to reward vault
+    await mintA.mintTo(
+      pdaRewardVaultTokenAAddress,
+      mintAAuthority.publicKey,
+      [mintAAuthority],
+      MINT_A_REWARD_VAULT_AMOUNT,
+    );
+
+    let pdaRewardVaultTokenAAccountOwner = (await provider.connection.getAccountInfo(pdaRewardVaultTokenAAddress)).owner;
+    assert.equal(TOKEN_PROGRAM_ID.toString(), pdaRewardVaultTokenAAccountOwner.toString(), );
+
+    let pdaRewardVaultTokenAAccountAmount = await (await mintA.getAccountInfo(pdaRewardVaultTokenAAddress)).amount.toNumber();
+    assert.equal(MINT_A_REWARD_VAULT_AMOUNT, pdaRewardVaultTokenAAccountAmount);
   });
 
   it('Initialize a StakeAccount for our user1', async () => {
@@ -146,7 +196,11 @@ describe('anchor-token-staking', () => {
 
     let stakeAccount = await program.account.stakeAccount.fetch(user1StakeAccountAddress);
     let authority = stakeAccount.authority;
-    let amount = stakeAccount.amount;
+    let amount = stakeAccount.stakedAmount;
+
+    console.log("Before Staking");
+    console.log("Staked At: ", stakeAccount.stakeStartTime.toNumber());
+    console.log("Unclaimed Amount: ", stakeAccount.unclaimedAmount.toNumber());
 
     assert.equal(user1.publicKey.toString(), authority.toString());
     assert.equal(0, amount);
@@ -154,13 +208,12 @@ describe('anchor-token-staking', () => {
   });
 
   it('Stake Tokens with user1', async () => {
-    const AMOUNT_TO_DEPOSIT = 200;
 
     await provider.connection.confirmTransaction(
       await program.rpc.stakeTokens(
-        new anchor.BN(AMOUNT_TO_DEPOSIT), {
+        new anchor.BN(AMOUNT_TO_STAKE), {
           accounts: {
-            vaultAccount: pdaVaultTokenAAddress,
+            stakeVault: pdaStakeVaultTokenAAddress,
             stakeAccount: user1StakeAccountAddress,
             staker: user1.publicKey,
             stakerTokenAccount: user1TokenAAccount,
@@ -170,28 +223,33 @@ describe('anchor-token-staking', () => {
       })
     );
 
-    let pdaTokenAAccountAmount = await (await mintA.getAccountInfo(pdaVaultTokenAAddress)).amount.toNumber();
-    assert.equal(AMOUNT_TO_DEPOSIT, pdaTokenAAccountAmount);
+    let pdaTokenAAccountAmount = await (await mintA.getAccountInfo(pdaStakeVaultTokenAAddress)).amount.toNumber();
+    assert.equal(AMOUNT_TO_STAKE, pdaTokenAAccountAmount);
 
-    let accessAccount = await program.account.stakeAccount.fetch(user1StakeAccountAddress);
-    let amount = accessAccount.amount;
+    let stakeAccount = await program.account.stakeAccount.fetch(user1StakeAccountAddress);
+    let amount = stakeAccount.stakedAmount;
 
-    assert.equal(AMOUNT_TO_DEPOSIT, amount);
+    console.log("After Staking");
+    console.log("Staked At: ", stakeAccount.stakeStartTime.toNumber());
+    console.log("Unclaimed Amount: ", stakeAccount.unclaimedAmount.toNumber());
+
+    assert.equal(AMOUNT_TO_STAKE, amount);
 
   });
 
   it('Unstake tokens from our program', async () => {
-    const AMOUNT_TO_WITHDRAW = 200;
 
     // Create our users StakeAccount PDA
     [user1StakeAccountAddress, user1StakeAccountBump] = await anchor.web3.PublicKey.findProgramAddress(
       [Buffer.from("stake-account"), mintA.publicKey.toBuffer(), user1.publicKey.toBuffer()], program.programId);
 
+    await delay(5000);
+
     await provider.connection.confirmTransaction(
       await program.rpc.unstakeTokens(
-        new anchor.BN(AMOUNT_TO_WITHDRAW), {
+        new anchor.BN(AMOUNT_TO_STAKE), {
           accounts: {
-            vaultAccount: pdaVaultTokenAAddress,
+            stakeVault: pdaStakeVaultTokenAAddress,
             stakeAccount: user1StakeAccountAddress,
             to: user1TokenAAccount,
             authority: user1.publicKey,
@@ -201,8 +259,17 @@ describe('anchor-token-staking', () => {
       })
     );
 
-    let pdaTokenAAccountAmount = await (await mintA.getAccountInfo(pdaVaultTokenAAddress)).amount.toNumber();
+    let pdaTokenAAccountAmount = await (await mintA.getAccountInfo(pdaStakeVaultTokenAAddress)).amount.toNumber();
     assert.equal(0, pdaTokenAAccountAmount);
+
+    let stakeAccount = await program.account.stakeAccount.fetch(user1StakeAccountAddress);
+    let amount = stakeAccount.stakedAmount;
+
+    console.log("After Unstaking");
+    console.log("Staked At: ", stakeAccount.stakeStartTime.toNumber());
+    console.log("Unclaimed Amount: ", stakeAccount.unclaimedAmount.toNumber());
+
+    assert.equal(0, amount);
 
   });
 
