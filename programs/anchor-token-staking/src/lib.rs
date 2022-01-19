@@ -180,7 +180,7 @@ pub mod anchor_token_staking {
 #[derive(Accounts)]
 #[instruction(bump: u8)]
 pub struct InitializeStakeVault<'info> {
-    #[account(init_if_needed,
+    #[account(init,
         payer = payer,
         seeds = [b"stake-vault", mint.key().as_ref()],
         bump = bump,
@@ -198,7 +198,7 @@ pub struct InitializeStakeVault<'info> {
 #[derive(Accounts)]
 #[instruction(bump: u8)]
 pub struct InitializeRewardVault<'info> {
-    #[account(init_if_needed,
+    #[account(init,
         payer = payer,
         seeds = [b"reward-vault", mint.key().as_ref()],
         bump = bump,
@@ -216,7 +216,7 @@ pub struct InitializeRewardVault<'info> {
 #[derive(Accounts)]
 #[instruction(bump: u8)]
 pub struct InitializeStakeAccount<'info> {
-    #[account(init_if_needed, 
+    #[account(init, 
         payer = stake_authority, 
         seeds = [b"stake-account", mint.key().as_ref(), stake_authority.key().as_ref()],
         bump = bump,
