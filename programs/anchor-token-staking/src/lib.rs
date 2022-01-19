@@ -149,11 +149,6 @@ pub mod anchor_token_staking {
         let pending_rewards = ctx.accounts.stake_account.calculate_pending_rewards(time);
         ctx.accounts.stake_account.unclaimed_amount += pending_rewards;
 
-        // Using our unclaimed_amount we set the amount we will transfer from the rewards vault,
-        // then set our unclaimed_amount to 0 - since we will be claiming it with the transfer.
-        let amount = ctx.accounts.stake_account.unclaimed_amount;
-        ctx.accounts.stake_account.unclaimed_amount = 0;
-
 
         // Transfer the amount that was unclaimed to our users token account.
         let cpi_program = ctx.accounts.token_program.to_account_info();
@@ -168,7 +163,10 @@ pub mod anchor_token_staking {
                 cpi_program, 
                 cpi_accounts,
                 &[&[b"reward-vault", mint.as_ref(), &[bump]]]), 
-            amount)?;
+            ctx.accounts.stake_account.unclaimed_amount)?;
+
+        // Set our unclaimed_amount to 0, since it has now been claimed.
+        ctx.accounts.stake_account.unclaimed_amount = 0;
 
         Ok(())
     }
