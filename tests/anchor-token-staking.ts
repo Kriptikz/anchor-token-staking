@@ -237,7 +237,7 @@ describe('anchor-token-staking', () => {
 
   });
 
-  it('Unstake tokens fail - Stake Locked', async () => {
+  it('Unstake tokens Error - Stake Locked', async () => {
     // Create our users StakeAccount PDA
     [user1StakeAccountAddress, user1StakeAccountBump] = await anchor.web3.PublicKey.findProgramAddress(
       [Buffer.from("stake-account"), mintA.publicKey.toBuffer(), user1.publicKey.toBuffer()], program.programId);
