@@ -4,6 +4,7 @@ use anchor_spl::token::{self, Token, TokenAccount, Mint, Transfer};
 declare_id!("4SgBV6KvC6TvRMPQqwcuNzfNDYcXKCo5TR5T3PFxBau5");
 
 const REWARDS_RATE_PER_SECOND_PER_STAKE: u64 = 1;
+const STAKE_LOCK_TIME: i64 = 5;
 
 #[program]
 pub mod anchor_token_staking {
@@ -85,6 +86,13 @@ pub mod anchor_token_staking {
             return Err(ErrorCode::InvalidStakeAccountPda.into())
         }
 
+        let clock = anchor_lang::solana_program::clock::Clock::get()?;
+        let time = clock.unix_timestamp;
+
+        if time < ctx.accounts.stake_account.stake_start_time + STAKE_LOCK_TIME {
+            return Err(ErrorCode::StakeIsLocked.into())
+        }
+
 
         let cpi_program = ctx.accounts.token_program.to_account_info();
         let cpi_accounts = Transfer {
@@ -103,9 +111,6 @@ pub mod anchor_token_staking {
                 cpi_accounts,
                 &[&[b"stake-vault", mint.as_ref(), &[bump]]]), 
             amount)?;
-        
-        let clock = anchor_lang::solana_program::clock::Clock::get()?;
-        let time = clock.unix_timestamp;
 
         // Update our unclaimed_amount -- needed here because we will be changing the staked_amount and stake_start_time so we need to calculate rewards first.
         let pending_rewards = ctx.accounts.stake_account.calculate_pending_rewards(time);
@@ -303,4 +308,6 @@ pub enum ErrorCode {
     InvalidStakeAccountPda,
     #[msg("Error: Insufficient funds staked")]
     InsufficientFundsStaked,
+    #[msg("Error: Stake is still locked")]
+    StakeIsLocked,
 }

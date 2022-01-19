@@ -237,6 +237,31 @@ describe('anchor-token-staking', () => {
 
   });
 
+  it('Unstake tokens fail - Stake Locked', async () => {
+    // Create our users StakeAccount PDA
+    [user1StakeAccountAddress, user1StakeAccountBump] = await anchor.web3.PublicKey.findProgramAddress(
+      [Buffer.from("stake-account"), mintA.publicKey.toBuffer(), user1.publicKey.toBuffer()], program.programId);
+
+    try {
+      await provider.connection.confirmTransaction(
+        await program.rpc.unstakeTokens(
+          new anchor.BN(AMOUNT_TO_STAKE), {
+            accounts: {
+              stakeVault: pdaStakeVaultTokenAAddress,
+              stakeAccount: user1StakeAccountAddress,
+              to: user1TokenAAccount,
+              authority: user1.publicKey,
+              tokenProgram: TOKEN_PROGRAM_ID,
+            },
+            signers: [user1]
+        })
+      )
+    } catch (errorMessage) {
+      console.log(errorMessage.toString());
+    }
+
+  });
+
   it('Unstake tokens from our program', async () => {
 
     // Create our users StakeAccount PDA
