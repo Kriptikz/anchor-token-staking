@@ -18,13 +18,7 @@ pub mod anchor_token_staking {
         Ok(())
     }
 
-    pub fn initialize_stake_account(ctx: Context<InitializeStakeAccount>, _bump: u8) -> ProgramResult {
-        // Verify the stake_account address is the correct PDA
-        let (pda, _) = Pubkey::find_program_address(&[b"stake-account", ctx.accounts.mint.key().as_ref(), ctx.accounts.stake_authority.key().as_ref()], &id());
-        if pda != ctx.accounts.stake_account.key() {
-            return Err(ErrorCode::InvalidStakeAccountPda.into())
-        }
-
+    pub fn initialize_stake_account(ctx: Context<InitializeStakeAccount>) -> ProgramResult {
         // Set our defaults for the StakeAccount
         ctx.accounts.stake_account.authority = ctx.accounts.stake_authority.key();
         ctx.accounts.stake_account.staked_amount = 0;
@@ -36,21 +30,7 @@ pub mod anchor_token_staking {
     }
 
     pub fn stake_tokens(ctx: Context<StakeTokens>, amount: u64) -> ProgramResult {
-        // verify the vault is our vault PDA of the tokens mint
-        let mint = ctx.accounts.staker_token_account.mint;
-        let (pda, _) = Pubkey::find_program_address(&[b"stake-vault", mint.as_ref()], &id());
-
-        if pda != ctx.accounts.stake_vault.key() {
-            return Err(ErrorCode::InvalidVaultPda.into())
-        }
-
-        // Verify the vault access address is the correct PDA
-        let (pda, _) = Pubkey::find_program_address(&[b"stake-account", mint.as_ref(), ctx.accounts.staker.key().as_ref()], &id());
-
-        if pda != ctx.accounts.stake_account.key() {
-            return Err(ErrorCode::InvalidStakeAccountPda.into())
-        }
-
+        // Transfer Tokens into the Stake Vault
         token::transfer((&*ctx.accounts).into(), amount)?;
 
         let clock = anchor_lang::solana_program::clock::Clock::get()?;
@@ -70,22 +50,7 @@ pub mod anchor_token_staking {
         Ok(())
     }
 
-    pub fn unstake_tokens(ctx: Context<UnstakeTokens>, amount: u64) -> ProgramResult {
-        // verify the vault is our vault PDA of the tokens mint
-        let mint = ctx.accounts.to.mint;
-        let (pda, bump) = Pubkey::find_program_address(&[b"stake-vault", mint.as_ref()], &id());
-
-        if pda != ctx.accounts.stake_vault.key() {
-            return Err(ErrorCode::InvalidVaultPda.into())
-        }
-
-        // Verify the vault access address is the correct PDA
-        let (pda, _) = Pubkey::find_program_address(&[b"stake-account", mint.as_ref(), ctx.accounts.authority.key().as_ref()], &id());
-
-        if pda != ctx.accounts.stake_account.key() {
-            return Err(ErrorCode::InvalidStakeAccountPda.into())
-        }
-
+    pub fn unstake_tokens(ctx: Context<UnstakeTokens>, bump: u8, amount: u64) -> ProgramResult {
         let clock = anchor_lang::solana_program::clock::Clock::get()?;
         let time = clock.unix_timestamp;
 
@@ -109,7 +74,7 @@ pub mod anchor_token_staking {
             CpiContext::new_with_signer(
                 cpi_program, 
                 cpi_accounts,
-                &[&[b"stake-vault", mint.as_ref(), &[bump]]]), 
+                &[&[b"stake-vault", ctx.accounts.to.mint.key().as_ref(), &[bump]]]), 
             amount)?;
 
         // Update our unclaimed_amount -- needed here because we will be changing the staked_amount and stake_start_time so we need to calculate rewards first.
@@ -131,22 +96,7 @@ pub mod anchor_token_staking {
         Ok(())
     }
 
-    pub fn claim_rewards(ctx: Context<ClaimRewards>) -> ProgramResult {
-        // verify the vault is our reward vault PDA of the tokens mint
-        let mint = ctx.accounts.to.mint;
-        let (pda, bump) = Pubkey::find_program_address(&[b"reward-vault", mint.as_ref()], &id());
-
-        if pda != ctx.accounts.reward_vault.key() {
-            return Err(ErrorCode::InvalidVaultPda.into())
-        }
-
-        // Verify the vault access address is the correct PDA
-        let (pda, _) = Pubkey::find_program_address(&[b"stake-account", mint.as_ref(), ctx.accounts.authority.key().as_ref()], &id());
-
-        if pda != ctx.accounts.stake_account.key() {
-            return Err(ErrorCode::InvalidStakeAccountPda.into())
-        }
-
+    pub fn claim_rewards(ctx: Context<ClaimRewards>, bump: u8) -> ProgramResult {
         let clock = anchor_lang::solana_program::clock::Clock::get()?;
         let time = clock.unix_timestamp;
 
@@ -167,7 +117,7 @@ pub mod anchor_token_staking {
             CpiContext::new_with_signer(
                 cpi_program, 
                 cpi_accounts,
-                &[&[b"reward-vault", mint.as_ref(), &[bump]]]), 
+                &[&[b"reward-vault", ctx.accounts.to.mint.as_ref(), &[bump]]]), 
             ctx.accounts.stake_account.unclaimed_amount)?;
 
         // Set our unclaimed_amount to 0, since it has now been claimed.
@@ -214,12 +164,11 @@ pub struct InitializeRewardVault<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(bump: u8)]
 pub struct InitializeStakeAccount<'info> {
     #[account(init, 
         payer = stake_authority, 
         seeds = [b"stake-account", mint.key().as_ref(), stake_authority.key().as_ref()],
-        bump = bump,
+        bump,
         space = 8 + 32 + 8 + 8 + 8)]
     pub stake_account: Account<'info, StakeAccount>,
     #[account(mut)]
@@ -230,9 +179,14 @@ pub struct InitializeStakeAccount<'info> {
 
 #[derive(Accounts)]
 pub struct StakeTokens<'info> {
-    #[account(mut)]
+    #[account(mut,
+        seeds = [b"stake-vault", staker_token_account.mint.key().as_ref()],
+        bump,)]
     pub stake_vault: Account<'info, TokenAccount>,
-    #[account(mut, constraint = stake_account.authority == staker.key())]
+    #[account(mut, 
+        seeds = [b"stake-account", staker_token_account.mint.key().as_ref(), staker.key().as_ref()],
+        bump,
+        constraint = stake_account.authority == staker.key())]
     pub stake_account: Account<'info, StakeAccount>,
     pub staker: Signer<'info>,
     #[account(mut)]
@@ -254,10 +208,16 @@ impl<'info> From<&StakeTokens<'info>> for CpiContext<'_, '_, '_, 'info, Transfer
 }
 
 #[derive(Accounts)]
+#[instruction(bump: u8)]
 pub struct UnstakeTokens<'info> {
-    #[account(mut)]
+    #[account(mut,
+        seeds = [b"stake-vault", to.mint.key().as_ref()],
+        bump = bump,)]
     pub stake_vault: Account<'info, TokenAccount>,
-    #[account(mut, constraint = stake_account.authority == authority.key())]
+    #[account(mut,
+        seeds = [b"stake-account", to.mint.key().as_ref(), authority.key().as_ref()],
+        bump,
+        constraint = stake_account.authority == authority.key())]
     pub stake_account: Account<'info, StakeAccount>,
     #[account(mut, constraint = to.owner == authority.key())]
     pub to: Account<'info, TokenAccount>,
@@ -266,10 +226,16 @@ pub struct UnstakeTokens<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(bump: u8)]
 pub struct ClaimRewards<'info> {
-    #[account(mut)]
+    #[account(mut,
+        seeds = [b"reward-vault", to.mint.key().as_ref()],
+        bump = bump,)]
     pub reward_vault: Account<'info, TokenAccount>,
-    #[account(mut, constraint = stake_account.authority == authority.key())]
+    #[account(mut, 
+        seeds = [b"stake-account", to.mint.key().as_ref(), authority.key().as_ref()],
+        bump,
+        constraint = stake_account.authority == authority.key())]
     pub stake_account: Account<'info, StakeAccount>,
     #[account(mut, constraint = to.owner == authority.key())]
     pub to: Account<'info, TokenAccount>,
@@ -302,10 +268,6 @@ impl StakeAccount {
 
 #[error]
 pub enum ErrorCode {
-    #[msg("Error: Invalid vault PDA")]
-    InvalidVaultPda,
-    #[msg("Error: Invalid StakeAccount PDA")]
-    InvalidStakeAccountPda,
     #[msg("Error: Insufficient funds staked")]
     InsufficientFundsStaked,
     #[msg("Error: Stake is still locked")]

@@ -182,8 +182,7 @@ describe('anchor-token-staking', () => {
       [Buffer.from("stake-account"), mintA.publicKey.toBuffer(), user1.publicKey.toBuffer()], program.programId);
 
     await provider.connection.confirmTransaction(
-      await program.rpc.initializeStakeAccount(
-        user1StakeAccountBump, {
+      await program.rpc.initializeStakeAccount({
           accounts: {
             stakeAccount: user1StakeAccountAddress,
             stakeAuthority: user1.publicKey,
@@ -233,6 +232,10 @@ describe('anchor-token-staking', () => {
     console.log("Staked At: ", stakeAccount.stakeStartTime.toNumber());
     console.log("Unclaimed Amount: ", stakeAccount.unclaimedAmount.toNumber());
 
+    let d = new Date(stakeAccount.stakeStartTime.toNumber() * 1000);
+
+    console.log("Date: ", d);
+
     assert.equal(AMOUNT_TO_STAKE, amount);
 
   });
@@ -245,6 +248,7 @@ describe('anchor-token-staking', () => {
     try {
       await provider.connection.confirmTransaction(
         await program.rpc.unstakeTokens(
+          pdaStakeVaultTokenABump,
           new anchor.BN(AMOUNT_TO_STAKE), {
             accounts: {
               stakeVault: pdaStakeVaultTokenAAddress,
@@ -272,6 +276,7 @@ describe('anchor-token-staking', () => {
 
     await provider.connection.confirmTransaction(
       await program.rpc.unstakeTokens(
+        pdaStakeVaultTokenABump,
         new anchor.BN(AMOUNT_TO_STAKE), {
           accounts: {
             stakeVault: pdaStakeVaultTokenAAddress,
@@ -311,7 +316,8 @@ describe('anchor-token-staking', () => {
     console.log("Unclaimed Amount: ", unclaimedAmount);
 
     await provider.connection.confirmTransaction(
-      await program.rpc.claimRewards({
+      await program.rpc.claimRewards(
+        pdaRewardVaultTokenABump, {
           accounts: {
             rewardVault: pdaRewardVaultTokenAAddress,
             stakeAccount: user1StakeAccountAddress,
